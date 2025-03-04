@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG转图片工具</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus@2.3.8/dist/index.css">
+  <style>
+    .container { padding: 20px; }
+    .input-card, .preview-card { margin-bottom: 20px; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; }
+    .preview-container { min-height: 200px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <el-card class="input-card">
+            <template #header>
+              <div class="card-header">
+                <span>SVG代码</span>
+              </div>
+            </template>
+            <el-input
+              v-model="svgCode"
+              type="textarea"
+              :rows="10"
+              placeholder="请输入SVG代码"
+              @input="updatePreview"
+            />
+          </el-card>
+        </el-col>
+        <el-col :span="12">
+          <el-card class="preview-card">
+            <template #header>
+              <div class="card-header">
+                <span>预览</span>
+                <el-button type="primary" @click="saveImage" :disabled="!svgCode">
+                  保存图片
+                </el-button>
+              </div>
+            </template>
+            <div class="preview-container" ref="previewContainer" v-html="svgCode"></div>
+          </el-card>
+        </el-col>
+      </el-row>
+      
+      <el-row :gutter="20" style="margin-top: 20px">
+        <el-col :span="24">
+          <el-card>
+            <template #header>
+              <div class="card-header">
+                <span>导出设置</span>
+              </div>
+            </template>
+            <el-form :model="exportSettings" label-width="120px">
+              <el-form-item label="文件名">
+                <el-input v-model="exportSettings.filename" placeholder="输入文件名（不含扩展名）"></el-input>
+              </el-form-item>
+              <el-form-item label="图片格式">
+                <el-radio-group v-model="exportSettings.format">
+                  <el-radio label="png">PNG</el-radio>
+                  <el-radio label="jpeg">JPEG</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="背景颜色" v-if="exportSettings.format === 'jpeg'">
+                <el-color-picker v-model="exportSettings.backgroundColor"></el-color-picker>
+              </el-form-item>
+              <el-form-item label="缩放比例">
+                <el-slider v-model="exportSettings.scale" :min="0.5" :max="3" :step="0.1" show-input></el-slider>
+              </el-form-item>
+            </el-form>
+          </el-card>
+        </el-col>
+      </el-row>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3.3.4/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/element-plus@2.3.8/dist/index.full.js"></script>
+  <script src="https://unpkg.com/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script>
+    const { createApp, ref, reactive } = Vue
+
+    const app = createApp({
+      setup() {
+        const svgCode = ref('')
+        const previewContainer = ref(null)
+
+        const exportSettings = reactive({
+          filename: 'svg-image',
+          format: 'png',
+          backgroundColor: '#ffffff',
+          scale: 1
+        })
+
+        const updatePreview = () => {
+          // 预览区域自动更新
+        }
+
+        const saveImage = async () => {
+          try {
+            const svgElement = previewContainer.value.querySelector('svg')
+            if (!svgElement) {
+              ElementPlus.ElMessage.error('无效的SVG代码')
+              return
+            }
+
+            // 获取SVG的尺寸
+            let width, height
+            
+            // 尝试从viewBox获取尺寸
+            if (svgElement.getAttribute('viewBox')) {
+              const viewBox = svgElement.getAttribute('viewBox').split(' ')
+              width = parseFloat(viewBox[2])
+              height = parseFloat(viewBox[3])
+            } else {
+              // 如果没有viewBox，尝试从width和height属性获取
+              width = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width
+              height = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height
+            }
+
+            // 应用缩放
+            width *= exportSettings.scale
+            height *= exportSettings.scale
+
+            // 创建Canvas
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+
+            // 如果是JPEG格式，填充背景色
+            if (exportSettings.format === 'jpeg') {
+              ctx.fillStyle = exportSettings.backgroundColor
+              ctx.fillRect(0, 0, width, height)
+            }
+
+            // 将SVG转换为Blob URL
+            const svgBlob = new Blob([svgCode.value], { type: 'image/svg+xml;charset=utf-8' })
+            const url = URL.createObjectURL(svgBlob)
+
+            // 创建Image对象
+            const img = new Image()
+            img.src = url
+
+            // 等待图片加载完成
+            await new Promise((resolve, reject) => {
+              img.onload = resolve
+              img.onerror = reject
+            })
+
+            // 绘制图片到Canvas
+            ctx.drawImage(img, 0, 0, width, height)
+
+            // 清理Blob URL
+            URL.revokeObjectURL(url)
+
+            // 转换Canvas为Blob并保存
+            canvas.toBlob((blob) => {
+              saveAs(blob, `${exportSettings.filename}.${exportSettings.format}`)
+            }, `image/${exportSettings.format}`)
+
+          } catch (error) {
+            console.error('保存图片时出错:', error)
+            ElementPlus.ElMessage.error('保存图片失败')
+          }
+        }
+
+        return {
+          svgCode,
+          previewContainer,
+          exportSettings,
+          updatePreview,
+          saveImage
+        }
+      }
+    })
+
+    app.use(ElementPlus)
+    app.mount('#app')
+  </script>
+</body>
+</html>
